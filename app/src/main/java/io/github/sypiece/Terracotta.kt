@@ -1,28 +1,43 @@
 package io.github.sypiece
 
+import android.util.Log
 import net.burningtnt.terracotta.TerracottaAndroidAPI
 import org.json.JSONObject
 import java.io.Reader
 
 object Terracotta {
-    private val listeners = mutableListOf<(TerracottaState) -> Unit>()
+    private val listeners = mutableListOf<Listener>()
     private var thread = Thread(this::doThread)
     private var isRunning = false
 
     var metadata = TerracottaAndroidAPI.Metadata(null, 0, null)
 
     fun getState(): TerracottaState {
-        val obj = JSONObject(TerracottaAndroidAPI.getState())
+        val state = TerracottaAndroidAPI.getState()
+        val obj = JSONObject(state)
         val index = obj.getInt("index")
         return when (obj.getString("state")) {
             "waiting" -> TerracottaState.Waiting(index)
 
             "host-scanning" -> TerracottaState.Host.Scanning(index)
-            "host-starting" -> TerracottaState.Host.Starting(index)
-            "host-ok" -> TerracottaState.Host.OK(index, obj.getInt("profile_index"))
+            "host-starting" -> TerracottaState.Host.Starting(index, obj.getString("room"))
+            "host-ok" -> {
+                val jsonProfiles = obj.getJSONArray("profiles")
+                val profiles = mutableListOf< TerracottaState.Profile>()
+                for (i in 0 until jsonProfiles.length()) {
+                    val profile = jsonProfiles.getJSONObject(i)
+                    profiles.add(TerracottaState.Profile(
+                        kind = profile.getString("kind"),
+                        machineID = profile.getString("machine_id"),
+                        name = profile.getString("name"),
+                        vendor = profile.getString("vendor")
+                    ))
+                }
+                TerracottaState.Host.OK(index, obj.getInt("profile_index"), profiles, obj.getString("room"))
+            }
 
-            "guest-connecting" -> TerracottaState.Guest.Connecting(index)
-            "guest-starting" -> TerracottaState.Guest.Starting(index)
+            "guest-connecting" -> TerracottaState.Guest.Connecting(index, obj.getString("room"))
+            "guest-starting" -> TerracottaState.Guest.Starting(index, obj.getString("room"), obj.getString("difficulty"))
             "guest-ok" -> TerracottaState.Guest.OK(index)
 
             "exception" -> TerracottaState.Exception(index)
@@ -53,25 +68,37 @@ object Terracotta {
             val state = getState()
             if (state.index > index) {
                 index = state.index
-                listeners.forEach { it(state) }
+                listeners.forEach {
+                    try {
+                        it.onStateChange(state)
+                    } catch (e: Throwable) {
+                        Log.e("Terracotta", "Listener threw exception", e)
+                        removeListener(it)
+                    }
+                }
             } else {
-                Thread.yield()
+                Thread.sleep(1000)
             }
         }
     }
 
-    fun addListener(listener: (TerracottaState) -> Unit) {
+    fun interface Listener {
+        fun onStateChange(newState: TerracottaState)
+    }
+
+    fun addListener(listener: Listener) {
         if (listeners.contains(listener)) {
             return
         }
         if (listeners.isEmpty()) {
             isRunning = true
+            thread.priority = Thread.MIN_PRIORITY
             thread.start()
         }
         listeners.add(listener)
     }
 
-    fun removeListener(listener: (TerracottaState) -> Unit) {
+    fun removeListener(listener: Listener) {
         listeners.remove(listener)
         if (listeners.isEmpty()) {
             isRunning = false
@@ -91,20 +118,26 @@ sealed class TerracottaState(open val index: Int) {
             override val index: Int
         ) : Host(index)
         data class Starting(
-            override val index: Int
+            override val index: Int,
+            val room: String
         ) : Host(index)
         data class OK(
             override val index: Int,
-            val profileIndex: Int
+            val profileIndex: Int,
+            val profiles: List<Profile>,
+            val room: String
         ) : Host(index)
     }
 
     sealed class Guest(override val index: Int) : TerracottaState(index) {
         data class Connecting(
-            override val index: Int
+            override val index: Int,
+            val room: String
         ) : Guest(index)
         data class Starting(
-            override val index: Int
+            override val index: Int,
+            val room: String,
+            val difficulty: String
         ) : Guest(index)
         data class OK(
             override val index: Int
@@ -114,4 +147,11 @@ sealed class TerracottaState(open val index: Int) {
     data class Exception(
         override val index: Int
     ) : TerracottaState(index)
+
+    data class Profile(
+        val kind: String,
+        val machineID: String,
+        val name: String,
+        val vendor: String
+    )
 }

@@ -22,14 +22,6 @@ class TerracottaService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        Terracotta.metadata = TerracottaAndroidAPI.initialize(this) {
-            val request = TerracottaAndroidAPI.getPendingVpnServiceRequest()
-            try {
-                request.reject()
-            } catch (e: Throwable) {
-                Log.e("TerracottaService", "reject failed", e)
-            }
-        }
     }
 
     override fun onStartCommand(
@@ -57,7 +49,6 @@ class TerracottaService : Service() {
     }
 
     inner class LocalBinder : Binder() {
-        fun getTerracotta() = terracotta!!
     }
 
     override fun onBind(intent: Intent?): IBinder {
