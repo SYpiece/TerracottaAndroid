@@ -1,14 +1,16 @@
 package io.github.sypiece
 
+import android.Manifest
+import android.annotation.SuppressLint
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.ComponentName
-import android.content.Intent
-import android.content.ServiceConnection
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
-import android.os.IBinder
-import android.util.Log
-import android.widget.Button
+import android.os.PowerManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,7 +20,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -27,21 +28,31 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.github.sypiece.ui.theme.TerracottaAndroidTheme
-import net.burningtnt.terracotta.TerracottaAndroidAPI
+
+const val notificationChannelId = "terracotta_android_id"
+const val notificationChannelName = "TerracottaAndroid"
+const val REQUEST_POST_NOTIFICATIONS = 2183
+const val NOTIFICATION_ID = 25789
 
 class UIActivity : ComponentActivity() {
+    var notificationManager: NotificationManagerCompat? = null
+
+    var wakeLock: PowerManager.WakeLock? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -50,6 +61,50 @@ class UIActivity : ComponentActivity() {
             TerracottaAndroidTheme {
                 App()
             }
+        }
+
+        val notificationChannel = NotificationChannel(
+            notificationChannelId,
+            notificationChannelName,
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            setSound(null, null)
+            enableVibration(false)
+            setShowBadge(false)
+        }
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.createNotificationChannel(notificationChannel)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ActivityCompat.checkSelfPermission(
+                    this@UIActivity,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
+                this@UIActivity.notificationManager = NotificationManagerCompat.from(this)
+            } else {
+                ActivityCompat.requestPermissions(
+                    this@UIActivity,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    REQUEST_POST_NOTIFICATIONS
+                )
+            }
+        } else {
+            this@UIActivity.notificationManager = NotificationManagerCompat.from(this)
+        }
+
+        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TerracotaAndroid::wakeLock")
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String?>,
+        grantResults: IntArray,
+        deviceId: Int
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults, deviceId)
+        if (requestCode == REQUEST_POST_NOTIFICATIONS && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            notificationManager = NotificationManagerCompat.from(this)
         }
     }
 
@@ -82,6 +137,24 @@ class UIActivity : ComponentActivity() {
         }
     }
 
+    fun buildRoomNotification(state: TerracottaState): Notification {
+        val builder = NotificationCompat.Builder(this, notificationChannelId)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setDefaults(0)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setAutoCancel(false)
+            .setOngoing(true)
+        return when (state) {
+            is TerracottaState.Host.OK -> builder
+                .setContentTitle("房间：${state.room}")
+                .setContentText("人数：${state.profiles.size}")
+            is TerracottaState.Guest.OK -> builder
+                .setContentTitle("")
+                .setContentText("人数：${state.profiles.size}")
+            else -> throw IllegalArgumentException("未知状态")
+        }.build()
+    }
+
     @Composable
     fun Host(navController: NavController) {
         var room by remember { mutableStateOf("") }
@@ -97,11 +170,31 @@ class UIActivity : ComponentActivity() {
             }
         }
 
+        LaunchedEffect(state) {
+            when(state) {
+                is TerracottaState.Host.OK -> @SuppressLint("MissingPermission", "WakelockTimeout") {
+                    notificationManager?.notify(NOTIFICATION_ID, buildRoomNotification(state))
+                    wakeLock?.let {
+                        if (!it.isHeld) {
+                            it.acquire()
+                        }
+                    }
+                }
+                else -> {
+                    notificationManager?.cancel(NOTIFICATION_ID)
+                    wakeLock?.let {
+                        if (it.isHeld) {
+                            it.release()
+                        }
+                    }
+                }
+            }
+        }
+
         Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            val currentState = state
-            when(currentState) {
+            when(val currentState = state) {
                 is TerracottaState.Waiting -> {
                     OutlinedTextField(
                         value = room,
@@ -118,8 +211,8 @@ class UIActivity : ComponentActivity() {
                     )
                     OutlinedButton(
                         onClick = {
-                            val roomID = if (room.isEmpty()) null else room
-                            val playerID = if (player.isEmpty()) null else player
+                            val roomID = room.ifEmpty { null }
+                            val playerID = player.ifEmpty { null }
                             Terracotta.setScanning(roomID, playerID)
                         }
                     ) {
@@ -128,7 +221,7 @@ class UIActivity : ComponentActivity() {
                 }
 
                 is TerracottaState.Host.Scanning -> {
-                    Text("扫描中...")
+                    Text("扫描局域网中...")
                     OutlinedButton(
                         onClick = {
                             Terracotta.setWaiting()
@@ -159,6 +252,7 @@ class UIActivity : ComponentActivity() {
                         }
                     )
                     Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.verticalScroll(rememberScrollState())
                     ) {
                         currentState.profiles.forEach {
@@ -207,6 +301,27 @@ class UIActivity : ComponentActivity() {
             }
         }
 
+        LaunchedEffect(state) {
+            when(state) {
+                is TerracottaState.Guest.OK -> @SuppressLint("MissingPermission", "WakelockTimeout") {
+                    notificationManager?.notify(NOTIFICATION_ID, buildRoomNotification(state))
+                    wakeLock?.let {
+                        if (!it.isHeld) {
+                            it.acquire()
+                        }
+                    }
+                }
+                else -> {
+                    notificationManager?.cancel(NOTIFICATION_ID)
+                    wakeLock?.let {
+                        if (it.isHeld) {
+                            it.release()
+                        }
+                    }
+                }
+            }
+        }
+
         Column(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -233,7 +348,7 @@ class UIActivity : ComponentActivity() {
                     )
                     OutlinedButton(
                         onClick = {
-                            val playerID = if (player.isEmpty()) null else player
+                            val playerID = player.ifEmpty { null }
                             if (!Terracotta.setGuesting(room, playerID)) {
                                 Toast.makeText(this@UIActivity, "加入房间失败", Toast.LENGTH_SHORT).show()
                             }
@@ -267,6 +382,14 @@ class UIActivity : ComponentActivity() {
 
                 is TerracottaState.Guest.OK -> {
                     Text("加入房间成功")
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    ) {
+                        currentState.profiles.forEach {
+                            Text("${it.kind} ${it.name}")
+                        }
+                    }
                     OutlinedButton(
                         onClick = {
                             Terracotta.setWaiting()
@@ -311,7 +434,7 @@ class UIActivity : ComponentActivity() {
                     navController.navigateUp()
                 }
             ) {
-                Text("退出")
+                Text("返回")
             }
         }
 
@@ -329,6 +452,7 @@ class UIActivity : ComponentActivity() {
                         "读取日志失败：${e.message}"
                     }
                     Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.verticalScroll(rememberScrollState())
                     ) {
                         Text(
