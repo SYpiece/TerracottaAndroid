@@ -24,13 +24,6 @@ class UIApplication : Application() {
             Log.e("TerracottaAndroid", "uncaught exception", throwable)
         }
 
-        Terracotta.metadata = TerracottaAndroidAPI.initialize(this) {
-            val request = TerracottaAndroidAPI.getPendingVpnServiceRequest()
-            try {
-                request.reject()
-            } catch (e: Throwable) {
-                Log.e("TerracottaAndroid", "reject failed", e)
-            }
-        }
+        Terracotta.initialize(this)
     }
 }

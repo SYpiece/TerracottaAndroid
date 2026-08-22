@@ -1,12 +1,14 @@
 package io.github.sypiece
 
+import android.content.Context
+import android.net.VpnService
 import android.util.Log
 import net.burningtnt.terracotta.TerracottaAndroidAPI
 import org.json.JSONObject
 import java.io.Reader
 
 object Terracotta {
-    private val listeners = mutableListOf<Listener>()
+    private val stateListeners = mutableListOf<StateListener>()
 
     @Volatile
     private var thread = Thread(this::doThread)
@@ -20,6 +22,28 @@ object Terracotta {
     private var lastStateStr: String = ""
 
     private var lastState: TerracottaState = TerracottaState.Unknown(-1, "")
+
+    var vpnRequestListener: VpnRequestListener? = null
+        @Synchronized
+        get
+        @Synchronized
+        set
+
+    fun initialize(context: Context) {
+        metadata = TerracottaAndroidAPI.initialize(context) @Synchronized {
+            val vpnRequest = TerracottaAndroidAPI.getPendingVpnServiceRequest()
+            if (vpnRequestListener == null) {
+                vpnRequest.reject()
+            } else {
+                val builder = vpnRequestListener?.onVpnRequest()
+                if (builder == null) {
+                    vpnRequest.reject()
+                } else {
+                    vpnRequest.startVpnService(builder)
+                }
+            }
+        }
+    }
 
     @Synchronized
     fun hasNewState(): Boolean {
@@ -105,7 +129,7 @@ object Terracotta {
             if (lastState.index != state.index) {
                 lastState = state
                 synchronized(this) {
-                    listeners.forEach {
+                    stateListeners.forEach {
                         try {
                             it.onStateChange(state)
                         } catch (e: Throwable) {
@@ -120,27 +144,31 @@ object Terracotta {
         }
     }
 
-    fun interface Listener {
+    fun interface StateListener {
         fun onStateChange(newState: TerracottaState)
     }
 
+    fun interface VpnRequestListener {
+        fun onVpnRequest(): VpnService.Builder?
+    }
+
     @Synchronized
-    fun addListener(listener: Listener) {
-        if (listeners.contains(listener)) {
+    fun addStateListener(stateListener: StateListener) {
+        if (stateListeners.contains(stateListener)) {
             return
         }
-        if (listeners.isEmpty()) {
+        if (stateListeners.isEmpty()) {
             isRunning = true
             thread.priority = Thread.MIN_PRIORITY
             thread.start()
         }
-        listeners.add(listener)
+        stateListeners.add(stateListener)
     }
 
     @Synchronized
-    fun removeListener(listener: Listener) {
-        listeners.remove(listener)
-        if (listeners.isEmpty()) {
+    fun removeListener(stateListener: StateListener) {
+        stateListeners.remove(stateListener)
+        if (stateListeners.isEmpty()) {
             isRunning = false
             thread.join(500)
             thread = Thread(this::doThread)

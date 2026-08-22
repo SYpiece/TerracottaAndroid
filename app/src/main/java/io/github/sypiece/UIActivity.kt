@@ -7,7 +7,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -15,6 +17,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -37,7 +40,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -50,7 +52,7 @@ const val REQUEST_POST_NOTIFICATIONS = 2183
 const val NOTIFICATION_ID = 25789
 
 class UIActivity : ComponentActivity() {
-    var notificationManager: NotificationManagerCompat? = null
+    var notificationManager: NotificationManager? = null
 
     var wakeLock: PowerManager.WakeLock? = null
 
@@ -80,7 +82,7 @@ class UIActivity : ComponentActivity() {
                     Manifest.permission.POST_NOTIFICATIONS
                 ) == PackageManager.PERMISSION_GRANTED
             ) {
-                this@UIActivity.notificationManager = NotificationManagerCompat.from(this)
+                this@UIActivity.notificationManager = notificationManager
             } else {
                 ActivityCompat.requestPermissions(
                     this@UIActivity,
@@ -89,7 +91,21 @@ class UIActivity : ComponentActivity() {
                 )
             }
         } else {
-            this@UIActivity.notificationManager = NotificationManagerCompat.from(this)
+            this@UIActivity.notificationManager = notificationManager
+        }
+
+        val intent = VpnService.prepare(this)
+        if (intent == null) {
+            startForegroundService(Intent(this, TerracottaVpnService::class.java))
+        } else {
+            val startVpnActivity = registerForActivityResult(
+                ActivityResultContracts.StartActivityForResult()
+            ) {
+                if (it.resultCode == RESULT_OK) {
+                    startForegroundService(Intent(this, TerracottaVpnService::class.java))
+                }
+            }
+            startVpnActivity.launch(intent)
         }
 
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
@@ -104,7 +120,7 @@ class UIActivity : ComponentActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults, deviceId)
         if (requestCode == REQUEST_POST_NOTIFICATIONS && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            notificationManager = NotificationManagerCompat.from(this)
+            notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         }
     }
 
@@ -163,17 +179,17 @@ class UIActivity : ComponentActivity() {
         var state by remember { mutableStateOf(Terracotta.getState()) }
 
         DisposableEffect(Unit) {
-            val listener = Terracotta.Listener { state = it }
-            Terracotta.addListener(listener)
+            val stateListener = Terracotta.StateListener { state = it }
+            Terracotta.addStateListener(stateListener)
             onDispose {
-                Terracotta.removeListener(listener)
+                Terracotta.removeListener(stateListener)
             }
         }
 
         LaunchedEffect(state) {
             when(state) {
                 is TerracottaState.Host.OK -> @SuppressLint("MissingPermission", "WakelockTimeout") {
-                    notificationManager?.notify(NOTIFICATION_ID, buildRoomNotification(state))
+//                    notificationManager?.notify(NOTIFICATION_ID, buildRoomNotification(state))
                     wakeLock?.let {
                         if (!it.isHeld) {
                             it.acquire()
@@ -181,7 +197,11 @@ class UIActivity : ComponentActivity() {
                     }
                 }
                 else -> {
-                    notificationManager?.cancel(NOTIFICATION_ID)
+//                    notificationManager?.let { it ->
+//                        if (it.activeNotifications.any { it.id == NOTIFICATION_ID }) {
+//                            it.cancel(NOTIFICATION_ID)
+//                        }
+//                    }
                     wakeLock?.let {
                         if (it.isHeld) {
                             it.release()
@@ -294,17 +314,17 @@ class UIActivity : ComponentActivity() {
         var state by remember { mutableStateOf(Terracotta.getState()) }
 
         DisposableEffect(Unit) {
-            val listener = Terracotta.Listener { state = it }
-            Terracotta.addListener(listener)
+            val stateListener = Terracotta.StateListener { state = it }
+            Terracotta.addStateListener(stateListener)
             onDispose {
-                Terracotta.removeListener(listener)
+                Terracotta.removeListener(stateListener)
             }
         }
 
         LaunchedEffect(state) {
             when(state) {
                 is TerracottaState.Guest.OK -> @SuppressLint("MissingPermission", "WakelockTimeout") {
-                    notificationManager?.notify(NOTIFICATION_ID, buildRoomNotification(state))
+//                    notificationManager?.notify(NOTIFICATION_ID, buildRoomNotification(state))
                     wakeLock?.let {
                         if (!it.isHeld) {
                             it.acquire()
@@ -312,7 +332,11 @@ class UIActivity : ComponentActivity() {
                     }
                 }
                 else -> {
-                    notificationManager?.cancel(NOTIFICATION_ID)
+//                    notificationManager?.let { it ->
+//                        if (it.activeNotifications.any { it.id == NOTIFICATION_ID }) {
+//                            it.cancel(NOTIFICATION_ID)
+//                        }
+//                    }
                     wakeLock?.let {
                         if (it.isHeld) {
                             it.release()
