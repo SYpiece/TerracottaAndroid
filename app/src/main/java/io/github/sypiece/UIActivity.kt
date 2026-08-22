@@ -1,50 +1,82 @@
 package io.github.sypiece
 
 import android.Manifest
-import android.annotation.SuppressLint
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context.CLIPBOARD_SERVICE
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
-import android.os.PowerManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
-import androidx.core.app.NotificationCompat
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import io.github.sypiece.TerracottaState.Profile.Kind.*
 import io.github.sypiece.ui.theme.TerracottaAndroidTheme
+import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 const val notificationChannelId = "terracotta_android_id"
 const val notificationChannelName = "TerracottaAndroid"
@@ -54,14 +86,18 @@ const val NOTIFICATION_ID = 25789
 class UIActivity : ComponentActivity() {
     var notificationManager: NotificationManager? = null
 
-    var wakeLock: PowerManager.WakeLock? = null
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             TerracottaAndroidTheme {
-                App()
+                Scaffold { innerPadding ->
+                    App(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(innerPadding)
+                    )
+                }
             }
         }
 
@@ -95,21 +131,17 @@ class UIActivity : ComponentActivity() {
         }
 
         val intent = VpnService.prepare(this)
-        if (intent == null) {
-            startForegroundService(Intent(this, TerracottaVpnService::class.java))
-        } else {
+        if (intent != null) {
             val startVpnActivity = registerForActivityResult(
                 ActivityResultContracts.StartActivityForResult()
             ) {
-                if (it.resultCode == RESULT_OK) {
-                    startForegroundService(Intent(this, TerracottaVpnService::class.java))
+                if (it.resultCode != RESULT_OK) {
+                    Toast.makeText(this, "拒绝启用VPN可能会导致应用运行不正常", Toast.LENGTH_LONG).show()
                 }
             }
             startVpnActivity.launch(intent)
         }
-
-        val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TerracotaAndroid::wakeLock")
+        startForegroundService(Intent(this, TerracottaService::class.java))
     }
 
     override fun onRequestPermissionsResult(
@@ -153,24 +185,6 @@ class UIActivity : ComponentActivity() {
         }
     }
 
-    fun buildRoomNotification(state: TerracottaState): Notification {
-        val builder = NotificationCompat.Builder(this, notificationChannelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setDefaults(0)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setAutoCancel(false)
-            .setOngoing(true)
-        return when (state) {
-            is TerracottaState.Host.OK -> builder
-                .setContentTitle("房间：${state.room}")
-                .setContentText("人数：${state.profiles.size}")
-            is TerracottaState.Guest.OK -> builder
-                .setContentTitle("")
-                .setContentText("人数：${state.profiles.size}")
-            else -> throw IllegalArgumentException("未知状态")
-        }.build()
-    }
-
     @Composable
     fun Host(navController: NavController) {
         var room by remember { mutableStateOf("") }
@@ -182,32 +196,7 @@ class UIActivity : ComponentActivity() {
             val stateListener = Terracotta.StateListener { state = it }
             Terracotta.addStateListener(stateListener)
             onDispose {
-                Terracotta.removeListener(stateListener)
-            }
-        }
-
-        LaunchedEffect(state) {
-            when(state) {
-                is TerracottaState.Host.OK -> @SuppressLint("MissingPermission", "WakelockTimeout") {
-//                    notificationManager?.notify(NOTIFICATION_ID, buildRoomNotification(state))
-                    wakeLock?.let {
-                        if (!it.isHeld) {
-                            it.acquire()
-                        }
-                    }
-                }
-                else -> {
-//                    notificationManager?.let { it ->
-//                        if (it.activeNotifications.any { it.id == NOTIFICATION_ID }) {
-//                            it.cancel(NOTIFICATION_ID)
-//                        }
-//                    }
-                    wakeLock?.let {
-                        if (it.isHeld) {
-                            it.release()
-                        }
-                    }
-                }
+                Terracotta.removeStateListener(stateListener)
             }
         }
 
@@ -220,19 +209,19 @@ class UIActivity : ComponentActivity() {
                         value = room,
                         singleLine = true,
                         onValueChange = { room = it },
-                        label = { Text("房间ID") },
+                        label = { Text("房间ID（可空）") },
                     )
                     OutlinedTextField(
                         value = player,
                         placeholder = { Text("Terracotta Anonymous Host") },
                         singleLine = true,
                         onValueChange = { player = it },
-                        label = { Text("玩家ID") },
+                        label = { Text("房主ID（可空）") },
                     )
                     OutlinedButton(
                         onClick = {
                             val roomID = room.ifEmpty { null }
-                            val playerID = player.ifEmpty { null }
+                            val playerID = player.ifEmpty { "Terracotta Anonymous Host${Random.nextInt(100, 1000)}" }
                             Terracotta.setScanning(roomID, playerID)
                         }
                     ) {
@@ -263,22 +252,13 @@ class UIActivity : ComponentActivity() {
                 }
 
                 is TerracottaState.Host.OK -> {
-                    Text(
-                        text = "房间创建成功：${currentState.room}",
-                        modifier = Modifier.clickable {
-                            val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Terracotta Room ID", currentState.room))
-                            Toast.makeText(this@UIActivity, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
-                        }
-                    )
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        currentState.profiles.forEach {
-                            Text("${it.kind} ${it.name}")
-                        }
+                        Text("房间创建成功：")
+                        CopyableText(currentState.room)
                     }
+                    PlayerListCard(currentState.profiles)
                     OutlinedButton(
                         onClick = {
                             Terracotta.setWaiting()
@@ -289,7 +269,8 @@ class UIActivity : ComponentActivity() {
                 }
 
                 is TerracottaState.Exception -> {
-                    Terracotta.setWaiting()
+                    Text("遇到错误")
+                    CopyableText(state.toString())
                 }
 
                 else -> {}
@@ -317,32 +298,7 @@ class UIActivity : ComponentActivity() {
             val stateListener = Terracotta.StateListener { state = it }
             Terracotta.addStateListener(stateListener)
             onDispose {
-                Terracotta.removeListener(stateListener)
-            }
-        }
-
-        LaunchedEffect(state) {
-            when(state) {
-                is TerracottaState.Guest.OK -> @SuppressLint("MissingPermission", "WakelockTimeout") {
-//                    notificationManager?.notify(NOTIFICATION_ID, buildRoomNotification(state))
-                    wakeLock?.let {
-                        if (!it.isHeld) {
-                            it.acquire()
-                        }
-                    }
-                }
-                else -> {
-//                    notificationManager?.let { it ->
-//                        if (it.activeNotifications.any { it.id == NOTIFICATION_ID }) {
-//                            it.cancel(NOTIFICATION_ID)
-//                        }
-//                    }
-                    wakeLock?.let {
-                        if (it.isHeld) {
-                            it.release()
-                        }
-                    }
-                }
+                Terracotta.removeStateListener(stateListener)
             }
         }
 
@@ -367,12 +323,12 @@ class UIActivity : ComponentActivity() {
                             player = str
                         },
                         label = {
-                            Text("玩家ID")
+                            Text("玩家ID（可空）")
                         },
                     )
                     OutlinedButton(
                         onClick = {
-                            val playerID = player.ifEmpty { null }
+                            val playerID = player.ifEmpty { "Terracotta Anonymous Player${Random.nextInt(100, 1000)}" }
                             if (!Terracotta.setGuesting(room, playerID)) {
                                 Toast.makeText(this@UIActivity, "加入房间失败", Toast.LENGTH_SHORT).show()
                             }
@@ -394,7 +350,7 @@ class UIActivity : ComponentActivity() {
                 }
 
                 is TerracottaState.Guest.Starting -> {
-                    Text("正在加入房间：${currentState.room}")
+                    Text("正在加入：${currentState.room}")
                     OutlinedButton(
                         onClick = {
                             Terracotta.setWaiting()
@@ -406,14 +362,7 @@ class UIActivity : ComponentActivity() {
 
                 is TerracottaState.Guest.OK -> {
                     Text("加入房间成功")
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.verticalScroll(rememberScrollState())
-                    ) {
-                        currentState.profiles.forEach {
-                            Text("${it.kind} ${it.name}")
-                        }
-                    }
+                    PlayerListCard(currentState.profiles)
                     OutlinedButton(
                         onClick = {
                             Terracotta.setWaiting()
@@ -421,6 +370,11 @@ class UIActivity : ComponentActivity() {
                     ) {
                         Text("退出房间")
                     }
+                }
+
+                is TerracottaState.Exception -> {
+                    Text("遇到错误")
+                    CopyableText(state.toString())
                 }
 
                 else -> {}
@@ -479,14 +433,7 @@ class UIActivity : ComponentActivity() {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.verticalScroll(rememberScrollState())
                     ) {
-                        Text(
-                            text = log,
-                            Modifier.clickable {
-                                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(ClipData.newPlainText("Terracotta Log", log))
-                                Toast.makeText(this@UIActivity, "日志已复制到剪贴板", Toast.LENGTH_SHORT).show()
-                            }
-                        )
+                        CopyableText(log)
                     }
                 },
                 confirmButton = {
@@ -510,7 +457,7 @@ class UIActivity : ComponentActivity() {
     }
 
     @Composable
-    fun App() {
+    fun App(modifier: Modifier = Modifier) {
         val navController = rememberNavController()
 
         @Composable
@@ -526,7 +473,7 @@ class UIActivity : ComponentActivity() {
         NavHost(
             navController = navController,
             startDestination = Destination.HOME,
-            modifier = Modifier.fillMaxSize()
+            modifier = modifier
         ) {
             composable(Destination.HOME) {
                 BoxWrapper { Home(navController) }
@@ -548,5 +495,126 @@ class UIActivity : ComponentActivity() {
             else -> {}
         }
     }
-}
 
+    @Composable
+    fun CopyableText(
+        text: String,
+        modifier: Modifier = Modifier,
+        color: Color = Color.Unspecified,
+        autoSize: TextAutoSize? = null,
+        fontSize: TextUnit = TextUnit.Unspecified,
+        fontStyle: FontStyle? = null,
+        fontWeight: FontWeight? = null,
+        fontFamily: FontFamily? = null,
+        letterSpacing: TextUnit = TextUnit.Unspecified,
+        textDecoration: TextDecoration? = null,
+        textAlign: TextAlign? = null,
+        lineHeight: TextUnit = TextUnit.Unspecified,
+        overflow: TextOverflow = TextOverflow.Clip,
+        softWrap: Boolean = true,
+        maxLines: Int = Int.MAX_VALUE,
+        minLines: Int = 1,
+        onTextLayout: ((TextLayoutResult) -> Unit)? = null,
+        style: TextStyle = LocalTextStyle.current
+    ) {
+        Text(
+            text,
+            modifier.clickable {
+                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Copyable Text", text))
+                Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
+            },
+            color,
+            autoSize,
+            fontSize,
+            fontStyle,
+            fontWeight,
+            fontFamily,
+            letterSpacing,
+            textDecoration,
+            textAlign,
+            lineHeight,
+            overflow,
+            softWrap,
+            maxLines,
+            minLines,
+            onTextLayout,
+            style
+        )
+    }
+
+    @Composable
+    fun PlayerListCard(profiles: List<TerracottaState.Profile>) {
+        OutlinedCard(
+            modifier = Modifier
+        ) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier
+                    .padding(4.dp)
+                    .width(IntrinsicSize.Max)
+            ) {
+                Text("玩家列表")
+                profiles.forEach {
+                    PlayerCard(it)
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun PlayerCard(profile: TerracottaState.Profile) {
+        Card(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(4.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(profile.name)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        fontSize = 12.sp,
+                        text = when(profile.kind) {
+                            HOST -> "房主"
+                            GUEST -> "房客"
+                            LOCAL -> "你"
+                        }
+                    )
+                }
+                Text(
+                    text = profile.vendor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Light
+                )
+            }
+        }
+    }
+
+    @Composable
+    @Preview
+    fun PlayerListCardPreview() {
+        PlayerListCard(listOf(
+            TerracottaState.Profile(
+                GUEST,
+                "",
+                "dfasnjk",
+                "dafsjlbjkawf"
+            ),
+            TerracottaState.Profile(
+                LOCAL,
+                "",
+                "asdgbre",
+                "g3qbteqangra"
+            ),
+            TerracottaState.Profile(
+                HOST,
+                "",
+                "rgaerb35q5",
+                "l689liyfm"
+            ),
+        ))
+    }
+}

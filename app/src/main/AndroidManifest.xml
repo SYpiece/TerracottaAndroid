@@ -28,6 +28,7 @@
         <activity
             android:name=".UIActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.TerracottaAndroid"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
@@ -37,7 +38,7 @@
             </intent-filter>
         </activity>
         <service
-            android:name=".TerracottaVpnService"
+            android:name=".TerracottaService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="dataSync"
             android:exported="false">

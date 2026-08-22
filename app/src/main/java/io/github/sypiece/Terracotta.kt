@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.VpnService
 import android.util.Log
 import net.burningtnt.terracotta.TerracottaAndroidAPI
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.Reader
 
@@ -59,42 +60,45 @@ object Terracotta {
         lastStateStr = state
         val obj = JSONObject(state)
         val index = obj.getInt("index")
+
+        fun praseProfiles(jsonProfiles: JSONArray): List<TerracottaState.Profile> {
+            val profiles = mutableListOf<TerracottaState.Profile>()
+            for (i in 0 until jsonProfiles.length()) {
+                val profile = jsonProfiles.getJSONObject(i)
+                profiles.add(TerracottaState.Profile(
+                    kind = TerracottaState.Profile.Kind.valueOf(profile.getString("kind")),
+                    machineID = profile.getString("machine_id"),
+                    name = profile.getString("name"),
+                    vendor = profile.getString("vendor")
+                ))
+            }
+            return profiles
+        }
+
         lastState = when (obj.getString("state")) {
             "waiting" -> TerracottaState.Waiting(index)
 
             "host-scanning" -> TerracottaState.Host.Scanning(index)
             "host-starting" -> TerracottaState.Host.Starting(index, obj.getString("room"))
-            "host-ok" -> {
-                val jsonProfiles = obj.getJSONArray("profiles")
-                val profiles = mutableListOf<TerracottaState.Profile>()
-                for (i in 0 until jsonProfiles.length()) {
-                    val profile = jsonProfiles.getJSONObject(i)
-                    profiles.add(TerracottaState.Profile(
-                        kind = profile.getString("kind"),
-                        machineID = profile.getString("machine_id"),
-                        name = profile.getString("name"),
-                        vendor = profile.getString("vendor")
-                    ))
-                }
-                TerracottaState.Host.OK(index, obj.getInt("profile_index"), profiles, obj.getString("room"))
-            }
+            "host-ok" -> TerracottaState.Host.OK(
+                index,
+                obj.getInt("profile_index"),
+                praseProfiles(obj.getJSONArray("profiles")),
+                obj.getString("room")
+            )
 
             "guest-connecting" -> TerracottaState.Guest.Connecting(index, obj.getString("room"))
-            "guest-starting" -> TerracottaState.Guest.Starting(index, obj.getString("room"), obj.getString("difficulty"))
-            "guest-ok" -> {
-                val jsonProfiles = obj.getJSONArray("profiles")
-                val profiles = mutableListOf<TerracottaState.Profile>()
-                for (i in 0 until jsonProfiles.length()) {
-                    val profile = jsonProfiles.getJSONObject(i)
-                    profiles.add(TerracottaState.Profile(
-                        kind = profile.getString("kind"),
-                        machineID = profile.getString("machine_id"),
-                        name = profile.getString("name"),
-                        vendor = profile.getString("vendor")
-                    ))
-                }
-                TerracottaState.Guest.OK(index, obj.getInt("profile_index"), profiles, obj.getString("url"))
-            }
+            "guest-starting" -> TerracottaState.Guest.Starting(
+                index,
+                obj.getString("room"),
+                obj.getString("difficulty")
+            )
+            "guest-ok" -> TerracottaState.Guest.OK(
+                index,
+                obj.getInt("profile_index"),
+                praseProfiles(obj.getJSONArray("profiles")),
+                obj.getString("url")
+            )
 
             "exception" -> TerracottaState.Exception(index)
 
@@ -134,7 +138,7 @@ object Terracotta {
                             it.onStateChange(state)
                         } catch (e: Throwable) {
                             Log.e("TerracottaAndroid", "Listener threw exception", e)
-                            removeListener(it)
+                            removeStateListener(it)
                         }
                     }
                 }
@@ -166,7 +170,7 @@ object Terracotta {
     }
 
     @Synchronized
-    fun removeListener(stateListener: StateListener) {
+    fun removeStateListener(stateListener: StateListener) {
         stateListeners.remove(stateListener)
         if (stateListeners.isEmpty()) {
             isRunning = false
@@ -220,11 +224,15 @@ sealed class TerracottaState(open val index: Int) {
     ) : TerracottaState(index)
 
     data class Profile(
-        val kind: String,
+        val kind: Kind,
         val machineID: String,
         val name: String,
         val vendor: String
-    )
+    ) {
+        enum class Kind {
+            HOST, GUEST, LOCAL
+        }
+    }
 
     data class Unknown(
         override val index: Int,
