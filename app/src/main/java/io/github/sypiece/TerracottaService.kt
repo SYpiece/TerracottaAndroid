@@ -57,7 +57,9 @@ class TerracottaService : VpnService() {
             setShowBadge(false)
         }
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        startForeground(NOTIFICATION_ID, buildNotification(Terracotta.getState()))
+        val notification = buildNotification(Terracotta.getState())
+        notificationManager?.notify(NOTIFICATION_ID, notification)
+        startForeground(NOTIFICATION_ID, notification)
         Terracotta.addStateListener(stateListener)
 
         Terracotta.vpnRequestListener = Terracotta.VpnRequestListener {
