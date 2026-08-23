@@ -47,7 +47,7 @@ class TerracottaService : VpnService() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TerracotaAndroid::wakeLock")
 
-        NotificationChannel(
+        val notificationChanel = NotificationChannel(
             NOTIFICATION_CHANNEL_ID,
             NOTIFICATION_CHANNEL_NAME,
             NotificationManager.IMPORTANCE_LOW
@@ -57,6 +57,7 @@ class TerracottaService : VpnService() {
             setShowBadge(false)
         }
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager?.createNotificationChannel(notificationChanel)
         val notification = buildNotification(Terracotta.getState())
         notificationManager?.notify(NOTIFICATION_ID, notification)
         startForeground(NOTIFICATION_ID, notification)
