@@ -2,6 +2,7 @@ package io.github.sypiece
 
 import android.annotation.SuppressLint
 import android.app.Notification
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
@@ -11,6 +12,12 @@ import androidx.core.app.NotificationCompat
 
 @SuppressLint("VpnServicePolicy")
 class TerracottaService : VpnService() {
+    companion object {
+        const val NOTIFICATION_CHANNEL_ID = "terracotta_android_id"
+        const val NOTIFICATION_CHANNEL_NAME = "TerracottaAndroid"
+        const val NOTIFICATION_ID = 25789
+    }
+
     var notificationManager: NotificationManager? = null
     var wakeLock: PowerManager.WakeLock? = null
 
@@ -40,6 +47,15 @@ class TerracottaService : VpnService() {
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TerracotaAndroid::wakeLock")
 
+        NotificationChannel(
+            NOTIFICATION_CHANNEL_ID,
+            NOTIFICATION_CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            setSound(null, null)
+            enableVibration(false)
+            setShowBadge(false)
+        }
         notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         startForeground(NOTIFICATION_ID, buildNotification(Terracotta.getState()))
         Terracotta.addStateListener(stateListener)
@@ -55,7 +71,7 @@ class TerracottaService : VpnService() {
             0,
             Intent(this, UIActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val builder = NotificationCompat.Builder(this, notificationChannelId)
+        val builder = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setDefaults(0)
             .setPriority(NotificationCompat.PRIORITY_LOW)

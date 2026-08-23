@@ -22,7 +22,7 @@ object Terracotta {
 
     private var lastStateStr: String = ""
 
-    private var lastState: TerracottaState = TerracottaState.Unknown(-1, "")
+    private var lastState: TerracottaState = TerracottaState.Waiting(-1)
 
     var vpnRequestListener: VpnRequestListener? = null
         @Synchronized
@@ -87,11 +87,14 @@ object Terracotta {
                 obj.getString("room")
             )
 
-            "guest-connecting" -> TerracottaState.Guest.Connecting(index, obj.getString("room"))
+            "guest-connecting" -> TerracottaState.Guest.Connecting(
+                index,
+                obj.getString("room")
+            )
             "guest-starting" -> TerracottaState.Guest.Starting(
                 index,
                 obj.getString("room"),
-                obj.getString("difficulty")
+                TerracottaState.Guest.Starting.Difficulty.valueOf(obj.getString("difficulty"))
             )
             "guest-ok" -> TerracottaState.Guest.OK(
                 index,
@@ -100,11 +103,14 @@ object Terracotta {
                 obj.getString("url")
             )
 
-            "exception" -> TerracottaState.Exception(index)
+            "exception" -> TerracottaState.Exception(
+                index,
+                TerracottaState.Exception.Type.entries[obj.getInt("type")]
+            )
 
-            else -> TerracottaState.Unknown(index, obj.getString("state"))
+            else -> throw IllegalArgumentException("Unknown state: ${obj.getString("state")}")
         }
-        Log.d("Terracotta", "New state: $lastState JSON: $state")
+        Log.i("Terracotta", "New state: $lastState JSON: $state")
         return lastState
     }
 
@@ -209,8 +215,16 @@ sealed class TerracottaState(open val index: Int) {
         data class Starting(
             override val index: Int,
             val room: String,
-            val difficulty: String
-        ) : Guest(index)
+            val difficulty: Difficulty
+        ) : Guest(index) {
+            enum class Difficulty {
+                UNKNOWN,
+                EASIEST,
+                SIMPLE,
+                MEDIUM,
+                TOUGH
+            }
+        }
         data class OK(
             override val index: Int,
             val profileIndex: Int,
@@ -220,8 +234,18 @@ sealed class TerracottaState(open val index: Int) {
     }
 
     data class Exception(
-        override val index: Int
-    ) : TerracottaState(index)
+        override val index: Int,
+        val type: Type
+    ) : TerracottaState(index) {
+        enum class Type {
+            PING_HOST_FAIL,
+            PING_HOST_RST,
+            GUEST_ET_CRASH,
+            HOST_ET_CRASH,
+            PING_SERVER_RST,
+            SCAFFOLDING_INVALID_RESPONSE
+        }
+    }
 
     data class Profile(
         val kind: Kind,
@@ -233,9 +257,4 @@ sealed class TerracottaState(open val index: Int) {
             HOST, GUEST, LOCAL
         }
     }
-
-    data class Unknown(
-        override val index: Int,
-        val state: String
-    ) : TerracottaState(index)
 }

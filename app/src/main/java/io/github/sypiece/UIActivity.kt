@@ -1,11 +1,8 @@
 package io.github.sypiece
 
 import android.Manifest
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Context.CLIPBOARD_SERVICE
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.VpnService
@@ -13,10 +10,10 @@ import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,7 +24,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -40,22 +36,17 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.ClipEntry
-import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -75,16 +66,13 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.github.sypiece.TerracottaState.Profile.Kind.*
 import io.github.sypiece.ui.theme.TerracottaAndroidTheme
-import kotlinx.coroutines.launch
 import kotlin.random.Random
 
-const val notificationChannelId = "terracotta_android_id"
-const val notificationChannelName = "TerracottaAndroid"
-const val REQUEST_POST_NOTIFICATIONS = 2183
-const val NOTIFICATION_ID = 25789
 
 class UIActivity : ComponentActivity() {
-    var notificationManager: NotificationManager? = null
+    companion object {
+        const val REQUEST_POST_NOTIFICATIONS = 2183
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,33 +89,18 @@ class UIActivity : ComponentActivity() {
             }
         }
 
-        val notificationChannel = NotificationChannel(
-            notificationChannelId,
-            notificationChannelName,
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            setSound(null, null)
-            enableVibration(false)
-            setShowBadge(false)
-        }
-        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.createNotificationChannel(notificationChannel)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ActivityCompat.checkSelfPermission(
                     this@UIActivity,
                     Manifest.permission.POST_NOTIFICATIONS
-                ) == PackageManager.PERMISSION_GRANTED
+                ) != PackageManager.PERMISSION_GRANTED
             ) {
-                this@UIActivity.notificationManager = notificationManager
-            } else {
                 ActivityCompat.requestPermissions(
                     this@UIActivity,
                     arrayOf(Manifest.permission.POST_NOTIFICATIONS),
                     REQUEST_POST_NOTIFICATIONS
                 )
             }
-        } else {
-            this@UIActivity.notificationManager = notificationManager
         }
 
         val intent = VpnService.prepare(this)
@@ -142,18 +115,6 @@ class UIActivity : ComponentActivity() {
             startVpnActivity.launch(intent)
         }
         startForegroundService(Intent(this, TerracottaService::class.java))
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String?>,
-        grantResults: IntArray,
-        deviceId: Int
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults, deviceId)
-        if (requestCode == REQUEST_POST_NOTIFICATIONS && grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        }
     }
 
     @Composable
@@ -278,8 +239,8 @@ class UIActivity : ComponentActivity() {
 
             OutlinedButton(
                 onClick = {
-                    Terracotta.setWaiting()
                     navController.navigateUp()
+                    Terracotta.setWaiting()
                 }
             ) {
                 Text("退出")
@@ -381,8 +342,8 @@ class UIActivity : ComponentActivity() {
             }
             OutlinedButton(
                 onClick = {
-                    Terracotta.setWaiting()
                     navController.navigateUp()
+                    Terracotta.setWaiting()
                 }
             ) {
                 Text("退出")
@@ -431,7 +392,7 @@ class UIActivity : ComponentActivity() {
                     }
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.verticalScroll(rememberScrollState())
+                        modifier = Modifier.verticalScroll(rememberScrollState(Int.MAX_VALUE))
                     ) {
                         CopyableText(log)
                     }
@@ -460,6 +421,8 @@ class UIActivity : ComponentActivity() {
     fun App(modifier: Modifier = Modifier) {
         val navController = rememberNavController()
 
+        var lastBackPressTime by remember { mutableLongStateOf(0L) }
+
         @Composable
         fun BoxWrapper(content: @Composable (BoxScope.() -> Unit)) {
             Box(
@@ -467,6 +430,22 @@ class UIActivity : ComponentActivity() {
                 contentAlignment = Alignment.Center,
             ) {
                 content()
+            }
+        }
+
+        fun backPressProtector() {
+            if (Terracotta.getState() is TerracottaState.Host || Terracotta.getState() is TerracottaState.Guest) {
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastBackPressTime < 2000) {
+                    navController.navigateUp()
+                    Terracotta.setWaiting()
+                } else {
+                    lastBackPressTime = currentTime
+                    Toast.makeText(this@UIActivity, "再按一次退出", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                navController.navigateUp()
+                Terracotta.setWaiting()
             }
         }
 
@@ -480,9 +459,11 @@ class UIActivity : ComponentActivity() {
             }
             composable(Destination.HOST) {
                 BoxWrapper { Host(navController) }
+                BackHandler { backPressProtector() }
             }
             composable(Destination.GUEST) {
                 BoxWrapper { Guest(navController) }
+                BackHandler { backPressProtector() }
             }
             composable(Destination.ABOUT) {
                 BoxWrapper { About(navController) }
@@ -492,7 +473,7 @@ class UIActivity : ComponentActivity() {
         when(Terracotta.getState()) {
             is TerracottaState.Host -> navController.navigate(Destination.HOST)
             is TerracottaState.Guest -> navController.navigate(Destination.GUEST)
-            else -> {}
+            else -> Terracotta.setWaiting()
         }
     }
 
