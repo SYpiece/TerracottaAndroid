@@ -1,14 +1,19 @@
 package io.github.sypiece
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
 import android.os.PowerManager
+import androidx.annotation.RequiresPermission
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 
 @SuppressLint("VpnServicePolicy")
 class TerracottaService : VpnService() {
@@ -18,10 +23,10 @@ class TerracottaService : VpnService() {
         const val NOTIFICATION_ID = 25789
     }
 
-    var notificationManager: NotificationManager? = null
+    var notificationManager: NotificationManagerCompat? = null
     var wakeLock: PowerManager.WakeLock? = null
 
-    private val stateListener = Terracotta.StateListener { newState ->
+    private val stateListener = Terracotta.StateListener { _, newState ->
         notificationManager?.notify(NOTIFICATION_ID, buildNotification(newState))
         when(newState) {
             is TerracottaState.Host.OK, is TerracottaState.Guest.OK -> {
@@ -41,6 +46,7 @@ class TerracottaService : VpnService() {
         }
     }
 
+    @RequiresPermission(Manifest.permission.POST_NOTIFICATIONS)
     override fun onCreate() {
         super.onCreate()
 
@@ -56,7 +62,7 @@ class TerracottaService : VpnService() {
             enableVibration(false)
             setShowBadge(false)
         }
-        notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager = NotificationManagerCompat.from(this)
         notificationManager?.createNotificationChannel(notificationChanel)
         val notification = buildNotification(Terracotta.getState())
         notificationManager?.notify(NOTIFICATION_ID, notification)

@@ -154,7 +154,7 @@ class UIActivity : ComponentActivity() {
         var state by remember { mutableStateOf(Terracotta.getState()) }
 
         DisposableEffect(Unit) {
-            val stateListener = Terracotta.StateListener { state = it }
+            val stateListener = Terracotta.StateListener { _, newState -> state = newState }
             Terracotta.addStateListener(stateListener)
             onDispose {
                 Terracotta.removeStateListener(stateListener)
@@ -256,7 +256,7 @@ class UIActivity : ComponentActivity() {
         var state by remember { mutableStateOf(Terracotta.getState()) }
 
         DisposableEffect(Unit) {
-            val stateListener = Terracotta.StateListener { state = it }
+            val stateListener = Terracotta.StateListener { _, newState -> state = newState }
             Terracotta.addStateListener(stateListener)
             onDispose {
                 Terracotta.removeStateListener(stateListener)

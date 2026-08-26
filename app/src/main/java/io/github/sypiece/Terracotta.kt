@@ -6,7 +6,12 @@ import android.util.Log
 import net.burningtnt.terracotta.TerracottaAndroidAPI
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.io.Reader
+import java.net.HttpURLConnection
+import java.net.URL
+import java.nio.charset.StandardCharsets
 
 object Terracotta {
     private val stateListeners = mutableListOf<StateListener>()
@@ -22,11 +27,9 @@ object Terracotta {
 
     private var lastStateStr: String = ""
 
-    private var lastState: TerracottaState = TerracottaState.Waiting(-1)
+    private var lastState: TerracottaState = TerracottaState.Unknown(-1)
 
     var vpnRequestListener: VpnRequestListener? = null
-        @Synchronized
-        get
         @Synchronized
         set
 
@@ -40,7 +43,13 @@ object Terracotta {
                 if (builder == null) {
                     vpnRequest.reject()
                 } else {
-                    vpnRequest.startVpnService(builder)
+                    val vpnInterface = vpnRequest.startVpnService(builder)
+                    addStateListener { oldState, newState ->
+                        if ((oldState is TerracottaState.Host || oldState is TerracottaState.Guest)
+                            && (newState is TerracottaState.Waiting || newState is TerracottaState.Exception)) {
+                            vpnInterface.close()
+                        }
+                    }
                 }
             }
         }
@@ -118,7 +127,34 @@ object Terracotta {
         TerracottaAndroidAPI.setWaiting()
     }
 
-    private val extraNodes = listOf("https://terracotta.glavo.site/acebc7d8-1208-47fd-b212-d03ac49e36e0")
+//    private val extraNodes = listOf("https://terracotta.glavo.site/acebc7d8-1208-47fd-b212-d03ac49e36e0")
+    private const val NODE_LIST_URL = "https://terracotta.glavo.site/nodes"
+
+    private val extraNodes: List<String> by lazy {
+        val url = URL(NODE_LIST_URL)
+        val connection = url.openConnection() as HttpURLConnection
+        connection.requestMethod = "GET"
+        connection.connectTimeout = 10000
+        connection.readTimeout = 10000
+        connection.setRequestProperty("Accept", "application/json")
+
+        val responseCode = connection.responseCode
+        if (responseCode == HttpURLConnection.HTTP_OK) {
+            val inputStream = connection.getInputStream()
+            val reader = BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8))
+
+            val response = StringBuilder()
+            var line: String? = null
+            while ((line = reader.readLine()) != null) {
+                response.append(line)
+            }
+            reader.close()
+            inputStream.close()
+
+            val jsonString = response.toString()
+            
+        }
+    }
 
     fun setScanning(room: String? = null, player: String? = null) {
         TerracottaAndroidAPI.setScanning(room, player, extraNodes)
@@ -137,17 +173,17 @@ object Terracotta {
         while (isRunning) {
             val state = getState()
             if (lastState.index != state.index) {
-                lastState = state
                 synchronized(this) {
                     stateListeners.forEach {
                         try {
-                            it.onStateChange(state)
+                            it.onStateChange(lastState, state)
                         } catch (e: Throwable) {
                             Log.e("TerracottaAndroid", "Listener threw exception", e)
                             removeStateListener(it)
                         }
                     }
                 }
+                lastState = state
             } else {
                 Thread.sleep(100)
             }
@@ -155,7 +191,7 @@ object Terracotta {
     }
 
     fun interface StateListener {
-        fun onStateChange(newState: TerracottaState)
+        fun onStateChange(oldState: TerracottaState, newState: TerracottaState)
     }
 
     fun interface VpnRequestListener {
@@ -257,4 +293,8 @@ sealed class TerracottaState(open val index: Int) {
             HOST, GUEST, LOCAL
         }
     }
+
+    data class Unknown(
+        override val index: Int
+    ) : TerracottaState(index)
 }
