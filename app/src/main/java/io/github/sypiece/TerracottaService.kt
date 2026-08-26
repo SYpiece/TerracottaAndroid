@@ -26,6 +26,7 @@ class TerracottaService : VpnService() {
     var notificationManager: NotificationManagerCompat? = null
     var wakeLock: PowerManager.WakeLock? = null
 
+    @SuppressLint("MissingPermission")
     private val stateListener = Terracotta.StateListener { _, newState ->
         notificationManager?.notify(NOTIFICATION_ID, buildNotification(newState))
         when(newState) {

@@ -7,11 +7,13 @@ import net.burningtnt.terracotta.TerracottaAndroidAPI
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.IOException
 import java.io.InputStreamReader
 import java.io.Reader
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.Executors
 
 object Terracotta {
     private val stateListeners = mutableListOf<StateListener>()
@@ -131,29 +133,36 @@ object Terracotta {
     private const val NODE_LIST_URL = "https://terracotta.glavo.site/nodes"
 
     private val extraNodes: List<String> by lazy {
-        val url = URL(NODE_LIST_URL)
-        val connection = url.openConnection() as HttpURLConnection
-        connection.requestMethod = "GET"
-        connection.connectTimeout = 10000
-        connection.readTimeout = 10000
-        connection.setRequestProperty("Accept", "application/json")
+        val executor = Executors.newSingleThreadExecutor()
+        val future = executor.submit<List<String>> {
+            runCatching {
+                val connection = URL(NODE_LIST_URL).openConnection() as HttpURLConnection
+                connection.apply {
+                    requestMethod = "GET"
+                    connectTimeout = 10000
+                    readTimeout = 10000
+                    setRequestProperty("Accept", "application/json")
+                }
 
-        val responseCode = connection.responseCode
-        if (responseCode == HttpURLConnection.HTTP_OK) {
-            val inputStream = connection.getInputStream()
-            val reader = BufferedReader(InputStreamReader(inputStream, StandardCharsets.UTF_8))
+                connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                    val jsonString = reader.readText()
+                    val jsonArray = JSONArray(jsonString)
 
-            val response = StringBuilder()
-            var line: String? = null
-            while ((line = reader.readLine()) != null) {
-                response.append(line)
+                    val results = mutableListOf<String>()
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        results.add(obj.getString("url"))
+                    }
+                    results
+                }
+            }.onFailure {
+                Log.e("TerracottaAndroid", "Failed to get node list", it)
+            }.getOrElse {
+                emptyList()
             }
-            reader.close()
-            inputStream.close()
-
-            val jsonString = response.toString()
-            
-        }
+        }.get()
+        executor.close()
+        future
     }
 
     fun setScanning(room: String? = null, player: String? = null) {
