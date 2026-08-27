@@ -3,6 +3,7 @@ package io.github.sypiece
 import android.content.Context
 import android.net.VpnService
 import android.util.Log
+import io.github.sypiece.Terracotta.StateListener
 import net.burningtnt.terracotta.TerracottaAndroidAPI
 import org.json.JSONArray
 import org.json.JSONObject
@@ -46,12 +47,18 @@ object Terracotta {
                     vpnRequest.reject()
                 } else {
                     val vpnInterface = vpnRequest.startVpnService(builder)
-                    addStateListener { oldState, newState ->
-                        if ((oldState is TerracottaState.Host || oldState is TerracottaState.Guest)
-                            && (newState is TerracottaState.Waiting || newState is TerracottaState.Exception)) {
-                            vpnInterface.close()
+                    addStateListener(object: StateListener {
+                        override fun onStateChange(
+                            oldState: TerracottaState,
+                            newState: TerracottaState
+                        ) {
+                            if ((oldState is TerracottaState.Host || oldState is TerracottaState.Guest)
+                                && (newState is TerracottaState.Waiting || newState is TerracottaState.Exception)) {
+                                vpnInterface.close()
+                                removeStateListener(this)
+                            }
                         }
-                    }
+                    })
                 }
             }
         }
@@ -129,41 +136,15 @@ object Terracotta {
         TerracottaAndroidAPI.setWaiting()
     }
 
-//    private val extraNodes = listOf("https://terracotta.glavo.site/acebc7d8-1208-47fd-b212-d03ac49e36e0")
-    private const val NODE_LIST_URL = "https://terracotta.glavo.site/nodes"
-
-    private val extraNodes: List<String> by lazy {
-        val executor = Executors.newSingleThreadExecutor()
-        val future = executor.submit<List<String>> {
-            runCatching {
-                val connection = URL(NODE_LIST_URL).openConnection() as HttpURLConnection
-                connection.apply {
-                    requestMethod = "GET"
-                    connectTimeout = 10000
-                    readTimeout = 10000
-                    setRequestProperty("Accept", "application/json")
-                }
-
-                connection.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
-                    val jsonString = reader.readText()
-                    val jsonArray = JSONArray(jsonString)
-
-                    val results = mutableListOf<String>()
-                    for (i in 0 until jsonArray.length()) {
-                        val obj = jsonArray.getJSONObject(i)
-                        results.add(obj.getString("url"))
-                    }
-                    results
-                }
-            }.onFailure {
-                Log.e("TerracottaAndroid", "Failed to get node list", it)
-            }.getOrElse {
-                emptyList()
-            }
-        }.get()
-        executor.close()
-        future
-    }
+    private val extraNodes = listOf(
+        "https://terracotta.glavo.site/acebc7d8-1208-47fd-b212-d03ac49e36e0",
+        "https://etnode.zkitefly.eu.org/node1",
+        "https://etnode.zkitefly.eu.org/node2",
+        "tcp://public.easytier.top:11010",
+        "tcp://public2.easytier.cn:54321",
+        "https://etnode.zkitefly.eu.org/node1",
+        "https://etnode.zkitefly.eu.org/node2",
+    )
 
     fun setScanning(room: String? = null, player: String? = null) {
         TerracottaAndroidAPI.setScanning(room, player, extraNodes)

@@ -41,7 +41,8 @@
             android:name=".TerracottaService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="dataSync"
-            android:exported="false">
+            android:exported="false"
+            tools:ignore="VpnServicePolicy">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
