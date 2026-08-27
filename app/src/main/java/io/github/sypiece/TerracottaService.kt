@@ -50,7 +50,7 @@ class TerracottaService : VpnService() {
         super.onCreate()
 
         val powerManager = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TerracotaAndroid::wakeLock")
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TerracottaAndroid::wakeLock")
 
         val notificationChanel = NotificationChannel(
             NOTIFICATION_CHANNEL_ID,

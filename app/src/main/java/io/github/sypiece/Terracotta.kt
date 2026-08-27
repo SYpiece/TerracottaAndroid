@@ -3,18 +3,10 @@ package io.github.sypiece
 import android.content.Context
 import android.net.VpnService
 import android.util.Log
-import io.github.sypiece.Terracotta.StateListener
 import net.burningtnt.terracotta.TerracottaAndroidAPI
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedReader
-import java.io.IOException
-import java.io.InputStreamReader
 import java.io.Reader
-import java.net.HttpURLConnection
-import java.net.URL
-import java.nio.charset.StandardCharsets
-import java.util.concurrent.Executors
 
 object Terracotta {
     private val stateListeners = mutableListOf<StateListener>()
