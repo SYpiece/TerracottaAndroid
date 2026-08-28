@@ -16,5 +16,5 @@ jobs:
                 with:
                     distribution: 'temurin'
                     java-version: '11'
-            - uses: gradle/actions/setup-gradle@v6
+            - run: chmod +x ./gradlew
             - run: ./gradlew assembleRelease
