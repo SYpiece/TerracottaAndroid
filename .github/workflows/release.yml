@@ -18,4 +18,4 @@ jobs:
           java-version: '11'
       - run: chmod +x ./gradlew
       - run: ./gradlew assembleRelease
-      - run: ls ./app/release/
+      - run: ls ./app/build/
