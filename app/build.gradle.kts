@@ -4,7 +4,16 @@ plugins {
 }
 
 android {
+    signingConfigs {
+        create("release") {
+            storeFile = file("./sign-key")
+            storePassword = project.findProperty("STORE_PASSWORD") as? String ?: ""
+            keyAlias = "key0"
+            keyPassword = project.findProperty("KEY_PASSWORD") as? String ?: ""
+        }
+    }
     namespace = "io.github.sypiece"
+
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -26,12 +35,15 @@ android {
             optimization {
                 enable = false
             }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+
     buildFeatures {
         compose = true
     }
