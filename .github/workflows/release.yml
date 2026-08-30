@@ -18,7 +18,7 @@ jobs:
           java-version: '11'
       - run: chmod +x ./gradlew
       - run: ./gradlew assembleRelease
-      - run: ls ./app/build/outputs/apk
+      - run: ls ./app/build/outputs/apk/release
 #      - uses: actions/upload-artifact@v7
 #        with:
 #          name: release
