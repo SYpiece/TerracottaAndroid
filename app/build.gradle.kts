@@ -7,9 +7,9 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file("./sign-key")
-            storePassword = project.findProperty("STORE_PASSWORD") as? String ?: ""
+            storePassword = System.getenv("STORE_PASSWORD")
             keyAlias = "key0"
-            keyPassword = project.findProperty("KEY_PASSWORD") as? String ?: ""
+            keyPassword = System.getenv("KEY_PASSWORD")
         }
     }
     namespace = "io.github.sypiece"
