@@ -18,9 +18,10 @@ jobs:
           java-version: '11'
       - run: chmod +x ./gradlew
       - run: ./gradlew assembleRelease
-      - uses: actions/upload-artifact@v7
-        with:
-          name: release
-          path: ./app/build/outputs/apk/app-release.apk
-          if-no-files-found: 'error'
-          archive: 'false'
+      - run: ls ./app/build/
+#      - uses: actions/upload-artifact@v7
+#        with:
+#          name: release
+#          path: ./app/build/outputs/apk/app-release.apk
+#          if-no-files-found: 'error'
+#          archive: 'false'
