@@ -17,7 +17,7 @@ jobs:
           distribution: 'temurin'
           java-version: '11'
       - run: chmod +x ./gradlew
-      - run: ./gradlew assembleRelease
+      - run: ./gradlew assembleRelease -PstoreFile="sign-key.jks" -PstorePassword="${{ secrets.KEY_PASSWORD }}" -PkeyAlias="key0" -PkeyPassword="${{ secrets.KEY_PASSWORD }}"
       - run: ls ./app/build/outputs/apk/release
 #      - uses: actions/upload-artifact@v7
 #        with:
