@@ -6,7 +6,7 @@ plugins {
 android {
     signingConfigs {
         create("release") {
-            storeFile = file("./../sign-key")
+            storeFile = file("./sign-key")
             storePassword = System.getenv("STORE_PASSWORD")
             keyAlias = "key0"
             keyPassword = System.getenv("KEY_PASSWORD")
