@@ -10,7 +10,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -34,5 +34,6 @@ jobs:
           archive: 'false'
 
       - uses: softprops/action-gh-release@v3
+        if: github.event_name == 'push'
         with:
           files: ./app/build/outputs/apk/release/app-release.apk
